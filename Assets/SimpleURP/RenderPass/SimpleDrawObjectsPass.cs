@@ -35,7 +35,10 @@ namespace SimpleURP.RenderPass
                 ? renderingData.cameraData.defaultOpaqueSortFlags
                 : SortingCriteria.CommonTransparent;
             SortingSettings sortingSettings = new SortingSettings(camera) { criteria = sortFlags };
-            DrawingSettings settings = new DrawingSettings(m_ShaderTagIdList[0], sortingSettings);
+            DrawingSettings settings = new DrawingSettings(m_ShaderTagIdList[0], sortingSettings)
+            {
+                perObjectData = renderingData.perObjectData,
+            };
             for (int i = 1; i < m_ShaderTagIdList.Count; ++i)
                 settings.SetShaderPassName(i, m_ShaderTagIdList[i]);
 
