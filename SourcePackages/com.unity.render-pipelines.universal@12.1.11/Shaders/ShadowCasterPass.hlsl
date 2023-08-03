@@ -52,12 +52,15 @@ Varyings ShadowPassVertex(Attributes input)
     UNITY_SETUP_INSTANCE_ID(input);
 
     output.uv = TRANSFORM_TEX(input.texcoord, _BaseMap);
+    // 这里用于消除自阴影导致的摩尔纹
     output.positionCS = GetShadowPositionHClip(input);
+    // output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
     return output;
 }
 
 half4 ShadowPassFragment(Varyings input) : SV_TARGET
 {
+    // 这里直接返回了0，编译时会直接优化掉这句，在renderdoc验证一下
     Alpha(SampleAlbedoAlpha(input.uv, TEXTURE2D_ARGS(_BaseMap, sampler_BaseMap)).a, _BaseColor, _Cutoff);
     return 0;
 }
