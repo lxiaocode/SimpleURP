@@ -100,33 +100,6 @@ namespace SimpleURP.RenderPass
             return true;
         }
 
-        private bool CascadesSetup(ref RenderingData renderingData, int shadowLightIndex, Light light)
-        {
-            m_ShadowCasterCascadesCount = renderingData.shadowData.mainLightShadowCascadesCount;
-            // 级联阴影最大分辨率
-            int shadowResolution = ShadowUtils.GetMaxTileResolutionInAtlas(
-                renderingData.shadowData.mainLightShadowmapWidth,
-                renderingData.shadowData.mainLightShadowmapHeight, 
-                m_ShadowCasterCascadesCount);
-            renderTargetWidth = renderingData.shadowData.mainLightShadowmapWidth;
-            renderTargetHeight = (m_ShadowCasterCascadesCount == 2) ?
-                renderingData.shadowData.mainLightShadowmapHeight >> 1 :
-                renderingData.shadowData.mainLightShadowmapHeight;
-            
-            for (int cascadeIndex = 0; cascadeIndex < m_ShadowCasterCascadesCount; ++cascadeIndex)
-            {
-                // ?
-                bool success = ShadowUtils.ExtractDirectionalLightMatrix(ref renderingData.cullResults, ref renderingData.shadowData,
-                    shadowLightIndex, cascadeIndex, renderTargetWidth, renderTargetHeight, shadowResolution, light.shadowNearPlane,
-                    out m_CascadeSplitDistances[cascadeIndex], out m_CascadeSlices[cascadeIndex]);
-
-                if (!success)
-                    return false;
-            }
-
-            return true;
-        }
-
         public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
         {
             ConfigureTarget(new RenderTargetIdentifier(m_MainLightShadowmapTexture));
