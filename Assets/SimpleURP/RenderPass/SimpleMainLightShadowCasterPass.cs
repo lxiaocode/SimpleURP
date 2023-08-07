@@ -21,7 +21,6 @@ namespace SimpleURP.RenderPass
         int renderTargetHeight;
         
         int m_MainLightShadowmapId;
-        RenderTexture m_MainLightShadowmapTexture;
         
         // ==============================================================================
         // 级联阴影相关
@@ -87,7 +86,7 @@ namespace SimpleURP.RenderPass
             
             for (int cascadeIndex = 0; cascadeIndex < m_ShadowCasterCascadesCount; ++cascadeIndex)
             {
-                // ?
+                // TODO
                 bool success = ShadowUtils.ExtractDirectionalLightMatrix(ref renderingData.cullResults, ref renderingData.shadowData,
                     shadowMainLightIndex, cascadeIndex, renderTargetWidth, renderTargetHeight, shadowResolution, light.shadowNearPlane,
                     out m_CascadeSplitDistances[cascadeIndex], out m_CascadeSlices[cascadeIndex]);
@@ -95,14 +94,15 @@ namespace SimpleURP.RenderPass
                 if (!success)
                     return false;
             }
-            m_MainLightShadowmapTexture = ShadowUtils.GetTemporaryShadowTexture(renderTargetWidth, renderTargetHeight, 16);
-            
             return true;
         }
 
         public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
         {
-            ConfigureTarget(new RenderTargetIdentifier(m_MainLightShadowmapTexture));
+            // NOTE: ShadowUtils.GetTemporaryShadowTexture
+            cmd.GetTemporaryRT(m_MainLightShadowmapId, renderTargetWidth, renderTargetHeight, 16, FilterMode.Bilinear, RenderTextureFormat.Shadowmap);
+            
+            ConfigureTarget(m_MainLightShadowmapId);
             ConfigureClear(ClearFlag.All, Color.black);
         }
 
@@ -173,7 +173,7 @@ namespace SimpleURP.RenderPass
             CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.SoftShadows, false);
 
             // 将 Shadowmap 设置为全局纹理
-            cmd.SetGlobalTexture(m_MainLightShadowmapId, m_MainLightShadowmapTexture);
+            // cmd.SetGlobalTexture(m_MainLightShadowmapId, m_MainLightShadowmapTexture);
             
             // 阴影矩阵，将片元的世界坐标变换到阴影纹理像素坐标上
             // 首先让片元的世界坐标左乘光源裁剪空间的VP矩阵，转换到光源裁剪空间，
@@ -215,8 +215,6 @@ namespace SimpleURP.RenderPass
         
         private void Clear()
         {
-            m_MainLightShadowmapTexture = null;
-
             for (int i = 0; i < m_MainLightShadowMatrices.Length; ++i)
                 m_MainLightShadowMatrices[i] = Matrix4x4.identity;
 
@@ -229,11 +227,7 @@ namespace SimpleURP.RenderPass
 
         public override void OnCameraCleanup(CommandBuffer cmd)
         {
-            if (m_MainLightShadowmapTexture)
-            {
-                RenderTexture.ReleaseTemporary(m_MainLightShadowmapTexture);
-                m_MainLightShadowmapTexture = null;
-            }
+            cmd.ReleaseTemporaryRT(m_MainLightShadowmapId);
         }
     }
 }

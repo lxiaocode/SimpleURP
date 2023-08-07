@@ -1,4 +1,5 @@
 using SimpleURP.RenderPass;
+using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering.Universal.Internal;
@@ -16,25 +17,53 @@ namespace SimpleURP
         SimpleDrawSkyboxPass m_DrawSkyboxPass;
         // 光源设置
         ForwardLights m_ForwardLights;
+
+        private SimplePostProcessPass m_PostProcessPass;
+        private SimplePostProcessPass m_FinalPostProcessPass;
+
+        private RenderTargetHandle _cameraTargetId;
         
         public SimpleRenderer(SimpleRendererData data) : base(data)
         {
+            // 中间渲染纹理
+            _cameraTargetId.Init("_SimpleCameraTexture");
+            // _cameraTargetId = Shader.PropertyToID("_SimpleCameraTexture");
+            // 光源相关的 Shader 变量/关键字
             m_ForwardLights = new ForwardLights();
             
             m_MainLightShadowCasterPass = new SimpleMainLightShadowCasterPass(RenderPassEvent.BeforeRenderingShadows);
             m_RenderOpaqueForwardPass = new SimpleDrawObjectsPass(RenderPassEvent.BeforeRenderingOpaques, true, RenderQueueRange.opaque, data.opaqueLayerMask);
-        
             m_RenderTransparentForwardPass = new SimpleDrawObjectsPass(RenderPassEvent.BeforeRenderingTransparents, false, RenderQueueRange.transparent, data.transparentLayerMask);
             m_DrawSkyboxPass = new SimpleDrawSkyboxPass(RenderPassEvent.BeforeRenderingSkybox);
+
+            m_PostProcessPass = new SimplePostProcessPass(RenderPassEvent.BeforeRenderingPostProcessing);
         }
 
         public override void Setup(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            // 中间渲染纹理
+            bool intermediateRenderTexture = renderingData.cameraData.postProcessEnabled;
+            if (intermediateRenderTexture)
+            {
+                CommandBuffer cmd = CommandBufferPool.Get();
+                RenderTextureDescriptor desc = renderingData.cameraData.cameraTargetDescriptor;
+                cmd.GetTemporaryRT(_cameraTargetId.id, desc, FilterMode.Bilinear);
+                context.ExecuteCommandBuffer(cmd);
+
+                ConfigureCameraTarget(_cameraTargetId.id, _cameraTargetId.id);
+            }
+            
+            // RenderPass
             if (m_MainLightShadowCasterPass.Setup(ref renderingData))
                 EnqueuePass(m_MainLightShadowCasterPass);
             EnqueuePass(m_RenderOpaqueForwardPass);
             EnqueuePass(m_DrawSkyboxPass);
             EnqueuePass(m_RenderTransparentForwardPass);
+            
+            m_PostProcessPass.Setup(in renderingData.cameraData.cameraTargetDescriptor, in _cameraTargetId);
+            EnqueuePass(m_PostProcessPass);
+            // m_FinalPostProcessPass.Setup(in renderingData.cameraData.cameraTargetDescriptor, in _cameraTargetId);
+            // EnqueuePass(m_FinalPostProcessPass);
         }
 
         public override void SetupLights(ScriptableRenderContext context, ref RenderingData renderingData)
