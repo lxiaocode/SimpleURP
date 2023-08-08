@@ -123,33 +123,37 @@ namespace SimpleURP.RenderPass
             VisibleLight shadowLight = renderingData.lightData.visibleLights[shadowLightIndex];
             
             CommandBuffer cmd = CommandBufferPool.Get();
-            // 渲染级联阴影
-            var settings = new ShadowDrawingSettings(renderingData.cullResults, shadowLightIndex);
-            for (int cascadeIndex = 0; cascadeIndex < m_ShadowCasterCascadesCount; ++cascadeIndex)
+            using (new ProfilingScope(cmd, new ProfilingSampler("MainLightShadow")))
             {
-                // 设置阴影裁剪数据
-                settings.splitData = m_CascadeSlices[cascadeIndex].splitData;
+                // 渲染级联阴影
+                var settings = new ShadowDrawingSettings(renderingData.cullResults, shadowLightIndex);
+                for (int cascadeIndex = 0; cascadeIndex < m_ShadowCasterCascadesCount; ++cascadeIndex)
+                {
+                    // 设置阴影裁剪数据
+                    settings.splitData = m_CascadeSlices[cascadeIndex].splitData;
                 
-                // 这里对应 shader 中的 GetShadowPositionHClip，用于计算阴影偏移
-                Vector4 shadowBias = ShadowUtils.GetShadowBias(ref shadowLight, shadowLightIndex, ref renderingData.shadowData, m_CascadeSlices[cascadeIndex].projectionMatrix, m_CascadeSlices[cascadeIndex].resolution);
-                ShadowUtils.SetupShadowCasterConstantBuffer(cmd, ref shadowLight, shadowBias);
-                // 生成阴影图时用于区分定向光和点状光的，它们用不同公式计算偏移
-                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.CastingPunctualLightShadow, false);
+                    // 这里对应 shader 中的 GetShadowPositionHClip，用于计算阴影偏移
+                    Vector4 shadowBias = ShadowUtils.GetShadowBias(ref shadowLight, shadowLightIndex, ref renderingData.shadowData, m_CascadeSlices[cascadeIndex].projectionMatrix, m_CascadeSlices[cascadeIndex].resolution);
+                    ShadowUtils.SetupShadowCasterConstantBuffer(cmd, ref shadowLight, shadowBias);
+                    // 生成阴影图时用于区分定向光和点状光的，它们用不同公式计算偏移
+                    CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.CastingPunctualLightShadow, false);
                 
-                // 设置视口偏移，因为要在一张 RT 上渲染多个级联阴影，各个级联渲染的位置由偏移决定
-                cmd.SetViewport(new Rect(m_CascadeSlices[cascadeIndex].offsetX, m_CascadeSlices[cascadeIndex].offsetY, m_CascadeSlices[cascadeIndex].resolution, m_CascadeSlices[cascadeIndex].resolution));
-                // 设置 VP 矩阵
-                cmd.SetViewProjectionMatrices(m_CascadeSlices[cascadeIndex].viewMatrix, m_CascadeSlices[cascadeIndex].projectionMatrix);
-                context.ExecuteCommandBuffer(cmd);
-                cmd.Clear();
+                    // 设置视口偏移，因为要在一张 RT 上渲染多个级联阴影，各个级联渲染的位置由偏移决定
+                    cmd.SetViewport(new Rect(m_CascadeSlices[cascadeIndex].offsetX, m_CascadeSlices[cascadeIndex].offsetY, m_CascadeSlices[cascadeIndex].resolution, m_CascadeSlices[cascadeIndex].resolution));
+                    // 设置 VP 矩阵
+                    cmd.SetViewProjectionMatrices(m_CascadeSlices[cascadeIndex].viewMatrix, m_CascadeSlices[cascadeIndex].projectionMatrix);
+                    context.ExecuteCommandBuffer(cmd);
+                    cmd.Clear();
                 
-                // 绘制 Shadowmap
-                context.DrawShadows(ref settings);
-                context.ExecuteCommandBuffer(cmd);
-                cmd.Clear();
+                    // 绘制 Shadowmap
+                    context.DrawShadows(ref settings);
+                    context.ExecuteCommandBuffer(cmd);
+                    cmd.Clear();
+                }
+
+                SetupMainLightShadowReceiverConstants(cmd, ref renderingData);
             }
 
-            SetupMainLightShadowReceiverConstants(cmd, ref renderingData);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
         }

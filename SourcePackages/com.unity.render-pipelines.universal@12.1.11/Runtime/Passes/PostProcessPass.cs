@@ -91,10 +91,12 @@ namespace UnityEngine.Rendering.Universal.Internal
         {
             base.profilingSampler = new ProfilingSampler(nameof(PostProcessPass));
             renderPassEvent = evt;
-            m_Data = data;
-            m_Materials = new MaterialLibrary(data);
-            m_BlitMaterial = blitMaterial;
+            m_Data = data;                              // 后处理设置
+            m_Materials = new MaterialLibrary(data);    // 后处理材质
+            m_BlitMaterial = blitMaterial;              // Blit 材质
 
+            // 验证指定用途是否支持指定图形格式
+            
             // Texture format pre-lookup
             if (SystemInfo.IsFormatSupported(GraphicsFormat.B10G11R11_UFloatPack32, FormatUsage.Linear | FormatUsage.Render))
             {
@@ -122,6 +124,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             else // Expect CoC banding
                 m_GaussianCoCFormat = GraphicsFormat.R8_UNorm;
 
+            // Bloom 金字塔
             // Bloom pyramid shader ids - can't use a simple stackalloc in the bloom function as we
             // unfortunately need to allocate strings
             ShaderConstants._BloomMipUp = new int[k_MaxPyramidSize];
@@ -133,7 +136,9 @@ namespace UnityEngine.Rendering.Universal.Internal
                 ShaderConstants._BloomMipDown[i] = Shader.PropertyToID("_BloomMipDown" + i);
             }
 
+            // MRT多重渲染目标，这种技术指的是GPU允许我们把场景同时渲染到多个渲染目标纹理中
             m_MRT2 = new RenderTargetIdentifier[2];
+            // 不知道是什么，在运动模糊中使用到
             m_ResetHistory = true;
             base.useNativeRenderPass = false;
         }
@@ -142,17 +147,25 @@ namespace UnityEngine.Rendering.Universal.Internal
 
         public void Setup(in RenderTextureDescriptor baseDescriptor, in RenderTargetHandle source, bool resolveToScreen, in RenderTargetHandle depth, in RenderTargetHandle internalLut, bool hasFinalPass, bool enableSRGBConversion)
         {
+            // cameraTargetDescriptor，相机中间RT的描述符
             m_Descriptor = baseDescriptor;
             m_Descriptor.useMipMap = false;
             m_Descriptor.autoGenerateMips = false;
+            // 相机中间RT
             m_Source = source.id;
             m_Depth = depth;
             m_InternalLut = internalLut;
+            // 管线中最后一个Pass
             m_IsFinalPass = false;
+            // 当前Pass之后是否是FinalPass
             m_HasFinalPass = hasFinalPass;
+            // 有些安卓设备不支持sRGB后备缓冲，需要进行转换
             m_EnableSRGBConversionIfNeeded = enableSRGBConversion;
+            // 在最后Blit到屏幕或颜色前缓冲
             m_ResolveToScreen = resolveToScreen;
+            // 帧缓冲
             m_Destination = RenderTargetHandle.CameraTarget;
+            // 是否在使用swapbuffer系统
             m_UseSwapBuffer = true;
         }
 
@@ -225,20 +238,21 @@ namespace UnityEngine.Rendering.Universal.Internal
         /// <inheritdoc/>
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            // 先获取内置的效果设置
             // Start by pre-fetching all builtin effect settings we need
             // Some of the color-grading settings are only used in the color grading lut pass
             var stack = VolumeManager.instance.stack;
-            m_DepthOfField = stack.GetComponent<DepthOfField>();
-            m_MotionBlur = stack.GetComponent<MotionBlur>();
-            m_PaniniProjection = stack.GetComponent<PaniniProjection>();
-            m_Bloom = stack.GetComponent<Bloom>();
-            m_LensDistortion = stack.GetComponent<LensDistortion>();
-            m_ChromaticAberration = stack.GetComponent<ChromaticAberration>();
-            m_Vignette = stack.GetComponent<Vignette>();
-            m_ColorLookup = stack.GetComponent<ColorLookup>();
-            m_ColorAdjustments = stack.GetComponent<ColorAdjustments>();
-            m_Tonemapping = stack.GetComponent<Tonemapping>();
-            m_FilmGrain = stack.GetComponent<FilmGrain>();
+            m_DepthOfField = stack.GetComponent<DepthOfField>();                    // 景深（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/post-processing-depth-of-field.html）
+            m_MotionBlur = stack.GetComponent<MotionBlur>();                        // 运动模糊（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/Post-Processing-Motion-Blur.html）
+            m_PaniniProjection = stack.GetComponent<PaniniProjection>();            // Panini投影（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/Post-Processing-Panini-Projection.html）
+            m_Bloom = stack.GetComponent<Bloom>();                                  // 泛光（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/post-processing-bloom.html）
+            m_LensDistortion = stack.GetComponent<LensDistortion>();                // 镜头失真（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/Post-Processing-Lens-Distortion.html）
+            m_ChromaticAberration = stack.GetComponent<ChromaticAberration>();      // 色差（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/post-processing-chromatic-aberration.html）
+            m_Vignette = stack.GetComponent<Vignette>();                            // 渐晕（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/post-processing-vignette.html）
+            m_ColorLookup = stack.GetComponent<ColorLookup>();                      // ？
+            m_ColorAdjustments = stack.GetComponent<ColorAdjustments>();            // 颜色调整（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/Post-Processing-Color-Adjustments.html）
+            m_Tonemapping = stack.GetComponent<Tonemapping>();                      // 色调映射（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/post-processing-tonemapping.html）
+            m_FilmGrain = stack.GetComponent<FilmGrain>();                          // 胶片颗粒（https://docs.unity3d.com/cn/Packages/com.unity.render-pipelines.universal@12.1/manual/Post-Processing-Film-Grain.html）
             m_UseDrawProcedural = renderingData.cameraData.xr.enabled;
             m_UseFastSRGBLinearConversion = renderingData.postProcessingData.useFastSRGBLinearConversion;
 
@@ -332,6 +346,8 @@ namespace UnityEngine.Rendering.Universal.Internal
             ref ScriptableRenderer renderer = ref cameraData.renderer;
             bool isSceneViewCamera = cameraData.isSceneViewCamera;
 
+            
+            // 检查需要做哪些后处理
             //Check amount of swaps we have to do
             //We blit back and forth without msaa untill the last blit.
             bool useStopNan = cameraData.isStopNaNEnabled && m_Materials.stopNaN != null;
@@ -349,6 +365,8 @@ namespace UnityEngine.Rendering.Universal.Internal
                 renderer.EnableSwapBufferMSAA(false);
             }
 
+            
+            // 使用GetSource()和GetDestination()访问RT
             // Don't use these directly unless you have a good reason to, use GetSource() and
             // GetDestination() instead
             bool tempTargetUsed = false;
@@ -402,9 +420,11 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            // 为cmd.DrawMesh()设置投影矩阵？
             // Setup projection matrix for cmd.DrawMesh()
             cmd.SetGlobalMatrix(ShaderConstants._FullscreenProjMat, GL.GetGPUProjectionMatrix(Matrix4x4.identity, true));
 
+            // ？
             // Optional NaN killer before post-processing kicks in
             // stopNaN may be null on Adreno 3xx. It doesn't support full shader level 3.5, but SystemInfo.graphicsShaderLevel is 35.
             if (useStopNan)
@@ -420,6 +440,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            // 抗锯齿
             // Anti-aliasing
             if (useSubPixeMorpAA)
             {
@@ -430,6 +451,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            // 景深
             // Depth of Field
             // Adreno 3xx SystemInfo.graphicsShaderLevel is 35, but instancing support is disabled due to buggy drivers.
             // DOF shader uses #pragma target 3.5 which adds requirement for instancing support, thus marking the shader unsupported on those devices.
@@ -446,6 +468,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            // 运动模糊
             // Motion blur
             if (useMotionBlur)
             {
@@ -456,6 +479,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            // Panini投影
             // Panini projection is done as a fullscreen pass after all depth-based effects are done
             // and before bloom kicks in
             if (usePaniniProjection)
@@ -467,6 +491,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            // 镜头光晕
             // Lens Flare
             if (useLensFlare)
             {
@@ -492,12 +517,14 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
             }
 
+            // 合并后处理栈
             // Combined post-processing stack
             using (new ProfilingScope(cmd, ProfilingSampler.Get(URPProfileId.UberPostProcess)))
             {
                 // Reset uber keywords
                 m_Materials.uber.shaderKeywords = null;
 
+                // 泛光
                 // Bloom goes first
                 bool bloomActive = m_Bloom.IsActive();
                 if (bloomActive)
@@ -506,12 +533,14 @@ namespace UnityEngine.Rendering.Universal.Internal
                         SetupBloom(cmd, GetSource(), m_Materials.uber);
                 }
 
+                // 设置其他效果，镜头失真、色差、渐晕、颜色分级
                 // Setup other effects constants
                 SetupLensDistortion(m_Materials.uber, isSceneViewCamera);
                 SetupChromaticAberration(m_Materials.uber);
                 SetupVignette(m_Materials.uber);
                 SetupColorGrading(cmd, ref renderingData, m_Materials.uber);
 
+                // 抖动和颗粒，只有在没有final pass时才应用
                 // Only apply dithering & grain if there isn't a final pass.
                 SetupGrain(cameraData, m_Materials.uber);
                 SetupDithering(cameraData, m_Materials.uber);
@@ -1103,6 +1132,7 @@ namespace UnityEngine.Rendering.Universal.Internal
 
         void SetupBloom(CommandBuffer cmd, RenderTargetIdentifier source, Material uberMaterial)
         {
+            // 分辨率减半
             // Start at half-res
             int tw = m_Descriptor.width >> 1;
             int th = m_Descriptor.height >> 1;
@@ -1113,11 +1143,12 @@ namespace UnityEngine.Rendering.Universal.Internal
             iterations -= m_Bloom.skipIterations.value;
             int mipCount = Mathf.Clamp(iterations, 1, k_MaxPyramidSize);
 
-            // Pre-filtering parameters
+            // Pre-filtering parameters？
             float clamp = m_Bloom.clamp.value;
             float threshold = Mathf.GammaToLinearSpace(m_Bloom.threshold.value);
             float thresholdKnee = threshold * 0.5f; // Hardcoded soft knee
 
+            // 设置bloom材质
             // Material setup
             float scatter = Mathf.Lerp(0.05f, 0.95f, m_Bloom.scatter.value);
             var bloomMaterial = m_Materials.bloom;
@@ -1125,7 +1156,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             CoreUtils.SetKeyword(bloomMaterial, ShaderKeywordStrings.BloomHQ, m_Bloom.highQualityFiltering.value);
             CoreUtils.SetKeyword(bloomMaterial, ShaderKeywordStrings.UseRGBM, m_UseRGBM);
 
-            // Prefilter
+            // Prefilter？
             var desc = GetCompatibleDescriptor(tw, th, m_DefaultHDRFormat);
             cmd.GetTemporaryRT(ShaderConstants._BloomMipDown[0], desc, FilterMode.Bilinear);
             cmd.GetTemporaryRT(ShaderConstants._BloomMipUp[0], desc, FilterMode.Bilinear);
